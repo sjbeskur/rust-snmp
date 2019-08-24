@@ -108,8 +108,8 @@ const USIZE_LEN: usize = 4;
 #[cfg(target_pointer_width="64")]
 const USIZE_LEN: usize = 8;
 
-#[cfg(test)]
-mod tests;
+//#[cfg(test)]
+//mod tests;
 
 #[derive(Debug, PartialEq)]
 pub enum SnmpError {
@@ -129,7 +129,7 @@ pub enum SnmpError {
     ReceiveError,
 }
 
-type SnmpResult<T> = Result<T, SnmpError>;
+pub type SnmpResult<T> = Result<T, SnmpError>;
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -609,7 +609,7 @@ fn decode_i64(i: &[u8]) -> SnmpResult<i64> {
 }
 
 /// Wrapper around raw bytes representing an ASN.1 OBJECT IDENTIFIER.
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct ObjectIdentifier<'a> {
     inner: &'a [u8],
 }
@@ -661,7 +661,7 @@ impl<'a, 'b> PartialEq<&'b [u32]> for ObjectIdentifier<'a> {
 }
 
 impl<'a> ObjectIdentifier<'a> {
-    fn from_bytes(bytes: &[u8]) -> ObjectIdentifier {
+    pub fn from_bytes(bytes: &[u8]) -> ObjectIdentifier {
         ObjectIdentifier {
             inner: bytes,
         }
@@ -675,8 +675,8 @@ impl<'a> ObjectIdentifier<'a> {
         if input.len() < 2 {
             return Err(SnmpError::AsnInvalidLen);
         }
-        let subid1 = (input[0] / 40) as u32;
-        let subid2 = (input[0] % 40) as u32;
+        let subid1 = (input[0] / 40) as u32;  // 0 - 3
+        let subid2 = (input[0] % 40) as u32;  // rang of 0 - 39
         output[0] = subid1;
         output[1] = subid2;
         let mut pos = 2;
@@ -990,7 +990,7 @@ impl<'a> AsnReader<'a> {
 
 }
 
-
+#[derive(Clone)]
 pub enum Value<'a> {
     Boolean(bool),
     Null,
@@ -1226,7 +1226,7 @@ impl SyncSession {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SnmpPdu<'a> {
     version: i64,
     community: &'a [u8],
@@ -1283,7 +1283,7 @@ impl<'a> SnmpPdu<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum SnmpMessageType {
     GetRequest,
     GetNextRequest,

@@ -7,7 +7,7 @@ use lib::*;
 fn main(){
 
     let community = b"ggc_ro";
-    let ip: Ipv4Addr = "10.80.4.110".parse().unwrap();
+    let ip: Ipv4Addr = "10.10.1.254".parse().unwrap();
     let sync = SyncSession::new(format!{"{}:161", ip}, community, Some(Duration::from_secs(3)),0);
 
     if let Ok(mut sess) = sync{
@@ -33,35 +33,53 @@ fn main(){
             }
         }
         */
-
+        // hp test 
+        /*
         let snmp_oids =    ["1.3.6.1.2.1.2.2.1.2".to_owned()];
         let snmp_oids_111 =    ["1.3.6.1.2.1.2.2.1.2.111".to_owned()];
         let snmp_oids_3525 =    ["1.3.6.1.2.1.2.2.1.2.3525".to_owned()];
         let snmp_oids_4356 =    ["1.3.6.1.2.1.2.2.1.2.4356".to_owned()];
 
+        n = 0
+        m = 30
+        */
+
+        let snmp_oids =    ["1.3.6.1.2.1.2.2.1.2".to_owned()];
+        let snmp_oids_5 =    ["1.3.6.1.2.1.2.2.1.2.5".to_owned()];
+        let snmp_oids_10 =    ["1.3.6.1.2.1.2.2.1.2.10".to_owned()];
+        let snmp_oids_15 =    ["1.3.6.1.2.1.2.2.1.2.15".to_owned()];
+
+        
+        let n = 0;
+        let m = 5;
+
 //        let oid = [1,3,6,1,2,1,2,2,1,2];
         let oids = oid_strings_to_uint_vecs(&snmp_oids);
         let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids);
+        snmpbulkwalk(&mut sess, &oids, n, m);
 
-        let oids = oid_strings_to_uint_vecs(&snmp_oids_111);
+        println!("");
+/*
+        let oids = oid_strings_to_uint_vecs(&snmp_oids_5);
         let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids);
+        snmpbulkwalk(&mut sess, &oids, n, m);
+        println!("");
 
-        let oids = oid_strings_to_uint_vecs(&snmp_oids_3525);
+        let oids = oid_strings_to_uint_vecs(&snmp_oids_10);
         let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids);
+        snmpbulkwalk(&mut sess, &oids, n, m);
+        println!("");
 
-        let oids = oid_strings_to_uint_vecs(&snmp_oids_4356);
+        let oids = oid_strings_to_uint_vecs(&snmp_oids_15);
         let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids);
-
+        snmpbulkwalk(&mut sess, &oids, n, m);
+*/
 
     }
 }
 
-fn snmpbulkwalk(sess: &mut SyncSession, oid_list: &[&[u32]] ) {
-    match sess.getbulk(&oid_list ,0,30){
+fn snmpbulkget(sess: &mut SyncSession, oid_list: &[&[u32]], non_repeaters: u32, max_repeats: u32 ) {
+    match sess.getbulk(&oid_list , non_repeaters,max_repeats){
         Ok(result) => {
             print_varbinds(result.varbinds);
         },
@@ -71,6 +89,75 @@ fn snmpbulkwalk(sess: &mut SyncSession, oid_list: &[&[u32]] ) {
     }
 }
 
+//sess: &'a mut SyncSession 
+fn snmpbulkget_r<'a>(sess: &'a mut SyncSession, oid: &[u32], non_repeaters: u32, max_repeats: u32 ) -> lib::SnmpResult<Varbinds<'a>>{
+    
+    let mut oid_list: Vec<&[u32]> = Vec::new();
+    oid_list.push(oid);
+
+    match sess.getbulk(&oid_list , non_repeaters, max_repeats){
+        Ok(result) => {
+            return Ok(result.varbinds)
+        },
+        Err(e) =>{
+            return Err(SnmpError::SendError)
+        }
+    }
+
+}
+
+
+fn snmpbulkwalk(sess: &mut SyncSession, oid_list: &[&[u32]], non_repeaters: u32, max_repeats: u32 ) {
+    let prefix = oid_list[0];
+    let prefix_len = prefix.len();
+    let mut oid = prefix;
+
+    let mut list: Vec<(ObjectIdentifier, Value)> = Vec::new();
+    
+    let mut mem_buff: [u32; 128] = [0; 128];
+
+    loop {
+        let bulkquery = snmpbulkget_r(sess, oid.clone(), non_repeaters, max_repeats);
+                
+        match bulkquery{
+
+            Ok(vbs) => {
+                let filtered : Vec<(ObjectIdentifier, Value)> = vbs
+                    //.inspect(|(curr_oid, _val)|println!("hi"))                    
+                    .filter(|(curr_oid, _val)| {  
+                        let mut oid_buff: [u32; 128] = [0; 128];
+                        let coid = curr_oid.read_name(&mut oid_buff).unwrap();
+                        let r = coid[0..prefix_len] == (*prefix)[..];
+                        r
+                }).collect();
+
+                if filtered.len() > 0{
+                    let last = filtered.last().unwrap();
+                    let last_oid = last.0.clone();
+                    let new_oid = last_oid.read_name(&mut mem_buff).unwrap();
+                    oid = new_oid;
+                    
+                    for (i , j ) in filtered{
+                        println!("oid={:?}   val={:?}", i, j);
+                    }                    
+                }else{
+                    break;
+                }
+
+            },
+            _ => {}
+        };
+
+    };
+}
+
+//        let loid = last_oid.read_name(&mut buff).unwrap();
+//        _oid = &loid.to_vec()[0 .. pl].to_vec();
+
+//        if 
+//        println!("{} : {:?}", last_oid, vb);
+//        println!("{:?} : ", voids);
+//       print_varbinds(vbs);
 
 fn print_varbinds(varbinds: Varbinds){
 
@@ -82,7 +169,7 @@ fn print_varbinds(varbinds: Varbinds){
         let pr = &o[0 .. l];
         
         if pr == prefix {
-            println!("{} : {:?}", oid, val);
+            println!("{} = {:?}", oid, val);
         }
     }
 }

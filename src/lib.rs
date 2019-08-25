@@ -93,7 +93,10 @@
 //! ```
 
 #![cfg_attr(feature = "private-tests", feature(test))]
-#![allow(unknown_lints, doc_markdown)]
+#![allow(unknown_lints)] //, doc_markdown)]
+
+extern crate pnet;
+
 
 use std::fmt;
 use std::io;
@@ -102,16 +105,22 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::num::Wrapping;
 use std::ptr;
 use std::time::Duration;
+use std::io::Error as IoError;
+use std::convert::From;
 
 #[cfg(target_pointer_width="32")]
 const USIZE_LEN: usize = 4;
 #[cfg(target_pointer_width="64")]
 const USIZE_LEN: usize = 8;
 
-//#[cfg(test)]
-//mod tests;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod tests_sam;
+#[cfg(test)]
+mod tests_serg;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]//, PartialEq)]
 pub enum SnmpError {
     AsnParseError,
     AsnInvalidLen,
@@ -127,14 +136,22 @@ pub enum SnmpError {
 
     SendError,
     ReceiveError,
+    IoError(IoError)
 }
+
+impl From<IoError> for SnmpError{
+    fn from(error: io::Error) -> Self {
+        SnmpError::IoError(error)
+    }
+}
+
 
 pub type SnmpResult<T> = Result<T, SnmpError>;
 
 const BUFFER_SIZE: usize = 4096;
 
 pub mod asn1 {
-    #![allow(dead_code, identity_op, eq_op)]
+    #![allow(dead_code)] //, identity_op, eq_op)]
 
     pub const PRIMITIVE:             u8 = 0b00000000;
     pub const CONSTRUCTED:           u8 = 0b00100000;
@@ -154,7 +171,7 @@ pub mod asn1 {
 }
 
 pub mod snmp {
-    #![allow(dead_code, identity_op, eq_op)]
+    #![allow(dead_code)] //, identity_op, eq_op)]
 
     use super::asn1;
 
@@ -361,7 +378,7 @@ pub mod pdu {
             };
             n = n.to_be();
             let count = unsafe {
-                let mut wbuf = self.available();
+                let wbuf = self.available();
                 let mut src_ptr = &n as *const i64 as *const u8;
                 let mut dst_ptr = wbuf.as_mut_ptr()
                     .offset((wbuf.len() - mem::size_of::<i64>()) as isize);
@@ -647,7 +664,7 @@ impl<'a> PartialEq<[u32]> for ObjectIdentifier<'a> {
     fn eq(&self, other: &[u32]) -> bool {
         let mut buf: ObjIdBuf = unsafe { mem::uninitialized() };
         if let Ok(name) = self.read_name(&mut buf) {
-            name == other
+            &name[.. other.len()] == other
         } else {
             false
         }
@@ -1115,7 +1132,9 @@ impl SyncSession {
             Some(SocketAddr::V6(_)) => UdpSocket::bind((Ipv6Addr::new(0,0,0,0,0,0,0,0), 0))?,
             None => panic!("empty list of socket addrs"),
         };
-        socket.set_read_timeout(timeout)?;
+        if timeout.is_some(){
+            socket.set_read_timeout(timeout)?;
+        }
         socket.connect(destination)?;
         Ok(SyncSession {
             socket: socket,
@@ -1125,6 +1144,7 @@ impl SyncSession {
             recv_buf: [0; 4096],
         })
     }
+
 
     fn send_and_recv(socket: &UdpSocket, pdu: &pdu::Buf, out: &mut [u8]) -> SnmpResult<usize> {
         if let Ok(_pdu_len) = socket.send(&pdu[..]) {
@@ -1224,6 +1244,46 @@ impl SyncSession {
         }
         Ok(resp)
     }
+
+
+    /*
+        UDP Session is created for the IP, so it can be indefinetly open and used for consecutive transmissions
+        SyncSession<192.168.0.1> sender1
+        SyncSession<192.168.0.2> sender2
+        SyncSession<192.168.0.N> senderN
+
+        level 2 listener: 
+            1. get packet
+            2. see if SNMP packet
+            3. see if that's reply (source/destination/SnmpMessageType::MSG_RESPONSE)
+            4. decode payload
+            5. build internal SNMP DB for the target device
+
+    */
+
+    //one way - fire-and-forget
+    fn send(socket: &UdpSocket, pdu: &pdu::Buf) -> SnmpResult<usize> {
+        Ok(socket.send(&pdu[..])?)
+    }
+
+    pub fn send_get(&mut self, name: &[u32]) -> SnmpResult<usize> {
+        pdu::build_get(self.community.as_slice(), 0, name, &mut self.send_pdu);
+        let res = Self::send(&self.socket, &self.send_pdu);
+        res
+    }
+
+    pub fn send_getnext(&mut self, name: &[u32]) -> SnmpResult<usize> {
+        pdu::build_getnext(self.community.as_slice(), 0, name, &mut self.send_pdu);
+        let res = Self::send(&self.socket, &self.send_pdu);
+        res
+    }
+
+    pub fn send_getbulk(&mut self, names: &[&[u32]], non_repeaters: u32, max_repetitions: u32) -> SnmpResult<usize> {
+        pdu::build_getbulk(self.community.as_slice(), 0, names, non_repeaters, max_repetitions, &mut self.send_pdu);
+        let res = Self::send(&self.socket, &self.send_pdu);
+        res
+    }
+
 }
 
 #[derive(Debug, Clone)]

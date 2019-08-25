@@ -1,3 +1,4 @@
+//nightly feature
 #![feature(test)]
 
 extern crate snmp;

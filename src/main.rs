@@ -1,100 +1,50 @@
 use std::net::{Ipv4Addr };
 use std::time::Duration;
+use std::env;
+
 
 mod lib;
 use lib::*;
+//use super::oid::ObjIdBuf;
+//use super::{Varbinds, Value, SyncSession, SnmpResult};
 
+
+//#[test]
 fn main(){
 
+    let args: Vec<String> = env::args().collect();
+    println!("{:?}", args);
+
     let community = b"ggc_ro";
-    let ip: Ipv4Addr = "10.10.1.254".parse().unwrap();
+    let ip: Ipv4Addr = "10.80.4.110".parse().unwrap();
     let sync = SyncSession::new(format!{"{}:161", ip}, community, Some(Duration::from_secs(3)),0);
 
     if let Ok(mut sess) = sync{
-        /*
-        match sess.get(&[1,3,6,1,2,1,1,1,0]){
-            Ok(result) =>{
-                print_varbinds(result.varbinds);
-            },
-            _ => {}
-        }
-        match sess.getnext(&[1,3,6,1,2,1,1,1]){
-            Ok(result) =>{
-                print_varbinds(result.varbinds);
-            },
-            _ => {}
-        }
-        match sess.getbulk(&oids ,0,30){
-            Ok(result) => {
-                print_varbinds(result.varbinds);
-            },
-            Err(e) =>{
-                println!("{:?}",e)
-            }
-        }
-        */
-        // hp test 
-        /*
-        let snmp_oids =    ["1.3.6.1.2.1.2.2.1.2".to_owned()];
-        let snmp_oids_111 =    ["1.3.6.1.2.1.2.2.1.2.111".to_owned()];
-        let snmp_oids_3525 =    ["1.3.6.1.2.1.2.2.1.2.3525".to_owned()];
-        let snmp_oids_4356 =    ["1.3.6.1.2.1.2.2.1.2.4356".to_owned()];
-
-        n = 0
-        m = 30
-        */
 
         let snmp_oids =    ["1.3.6.1.2.1.2.2.1.2".to_owned()];
-        let snmp_oids_5 =    ["1.3.6.1.2.1.2.2.1.2.5".to_owned()];
-        let snmp_oids_10 =    ["1.3.6.1.2.1.2.2.1.2.10".to_owned()];
-        let snmp_oids_15 =    ["1.3.6.1.2.1.2.2.1.2.15".to_owned()];
-
         
         let n = 0;
-        let m = 5;
+        let m = 100;
 
-//        let oid = [1,3,6,1,2,1,2,2,1,2];
         let oids = oid_strings_to_uint_vecs(&snmp_oids);
         let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids, n, m);
 
-        println!("");
-/*
-        let oids = oid_strings_to_uint_vecs(&snmp_oids_5);
-        let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids, n, m);
-        println!("");
 
-        let oids = oid_strings_to_uint_vecs(&snmp_oids_10);
-        let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids, n, m);
-        println!("");
 
-        let oids = oid_strings_to_uint_vecs(&snmp_oids_15);
-        let oids = oid_uints_to_ary(&oids);
-        snmpbulkwalk(&mut sess, &oids, n, m);
-*/
+        let list = snmpbulkwalk(&mut sess, &oids, n, m);
 
-    }
-}
-
-fn snmpbulkget(sess: &mut SyncSession, oid_list: &[&[u32]], non_repeaters: u32, max_repeats: u32 ) {
-    match sess.getbulk(&oid_list , non_repeaters,max_repeats){
-        Ok(result) => {
-            print_varbinds(result.varbinds);
-        },
-        Err(e) =>{
-            println!("{:?}",e)
+        for item in list{
+            println!("{}", item );
         }
+
+
     }
 }
 
-//sess: &'a mut SyncSession 
-fn snmpbulkget_r<'a>(sess: &'a mut SyncSession, oid: &[u32], non_repeaters: u32, max_repeats: u32 ) -> lib::SnmpResult<Varbinds<'a>>{
-    
+
+fn snmpbulkget<'a>(sess: &'a mut SyncSession, oid: &[u32], non_repeaters: u32, max_repeats: u32 ) -> lib::SnmpResult<Varbinds<'a>>{    
     let mut oid_list: Vec<&[u32]> = Vec::new();
     oid_list.push(oid);
-
     match sess.getbulk(&oid_list , non_repeaters, max_repeats){
         Ok(result) => {
             return Ok(result.varbinds)
@@ -103,61 +53,40 @@ fn snmpbulkget_r<'a>(sess: &'a mut SyncSession, oid: &[u32], non_repeaters: u32,
             return Err(SnmpError::SendError)
         }
     }
-
 }
 
 
-fn snmpbulkwalk(sess: &mut SyncSession, oid_list: &[&[u32]], non_repeaters: u32, max_repeats: u32 ) {
+fn snmpbulkwalk(sess: &mut SyncSession, oid_list: &[&[u32]], non_repeaters: u32, max_repeats: u32 ) -> Vec<String>{
     let prefix = oid_list[0];
-    let prefix_len = prefix.len();
     let mut oid = prefix;
 
-    let mut list: Vec<(ObjectIdentifier, Value)> = Vec::new();
-    
+    let mut list: Vec<String> = Vec::new();
     let mut mem_buff: [u32; 128] = [0; 128];
-
     loop {
-        let bulkquery = snmpbulkget_r(sess, oid.clone(), non_repeaters, max_repeats);
+        let bulkquery = snmpbulkget(sess, oid.clone(), non_repeaters, max_repeats);
                 
         match bulkquery{
-
             Ok(vbs) => {
-                let filtered : Vec<(ObjectIdentifier, Value)> = vbs
-                    //.inspect(|(curr_oid, _val)|println!("hi"))                    
-                    .filter(|(curr_oid, _val)| {  
-                        let mut oid_buff: [u32; 128] = [0; 128];
-                        let coid = curr_oid.read_name(&mut oid_buff).unwrap();
-                        let r = coid[0..prefix_len] == (*prefix)[..];
-                        r
-                }).collect();
-
-                if filtered.len() > 0{
-                    let last = filtered.last().unwrap();
-                    let last_oid = last.0.clone();
-                    let new_oid = last_oid.read_name(&mut mem_buff).unwrap();
-                    oid = new_oid;
-                    
-                    for (i , j ) in filtered{
-                        println!("oid={:?}   val={:?}", i, j);
-                    }                    
-                }else{
-                    break;
-                }
-
+                for (curr_oid, value) in vbs{
+                    let mut oid_buff: [u32; 128] = [0; 128];
+                    let coid = curr_oid.read_name(&mut oid_buff).unwrap();
+                    if !coid.starts_with(prefix) { //if(coid[0..prefix_len] != (*prefix)[..]) {
+                        return list;
+                    }else{
+                        let new_oid = curr_oid.read_name(&mut mem_buff).unwrap();
+                        oid = new_oid;
+                        list.push( format!("{} {:?}", curr_oid, value) );
+                    }
+                }                    
             },
-            _ => {}
+            Err(e) => {
+                println!("{:?}",e);
+            }
         };
 
-    };
+    }
 }
 
-//        let loid = last_oid.read_name(&mut buff).unwrap();
-//        _oid = &loid.to_vec()[0 .. pl].to_vec();
-
-//        if 
-//        println!("{} : {:?}", last_oid, vb);
-//        println!("{:?} : ", voids);
-//       print_varbinds(vbs);
 
 fn print_varbinds(varbinds: Varbinds){
 
@@ -186,15 +115,6 @@ fn oid_strings_to_uint_vecs( snmp_oids: &[String]) -> Vec<Vec<u32>>{
     }
     oid_buf
 }
-
-fn oid_string_to_uint( snmp_oid: String) -> Vec<u32>{ 
-    let z = snmp_oid.split('.')
-        .filter(|z| !z.is_empty() )
-        .map(|z| z.parse::<u32>().unwrap()).collect::<Vec<u32>>();
-
-    z
-}
-
 
 pub fn oid_uints_to_ary(oid_vec: &Vec<Vec<u32>>) -> Vec<&[u32]> {
     let mut oids = Vec::new();

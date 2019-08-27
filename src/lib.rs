@@ -93,7 +93,7 @@
 //! ```
 
 #![cfg_attr(feature = "private-tests", feature(test))]
-#![allow(unknown_lints, doc_markdown)]
+#![allow(unknown_lints)]//, doc_markdown)]
 
 use std::fmt;
 use std::io;
@@ -102,6 +102,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::num::Wrapping;
 use std::ptr;
 use std::time::Duration;
+
 
 #[cfg(target_pointer_width="32")]
 const USIZE_LEN: usize = 4;
@@ -134,7 +135,7 @@ pub type SnmpResult<T> = Result<T, SnmpError>;
 const BUFFER_SIZE: usize = 4096;
 
 pub mod asn1 {
-    #![allow(dead_code, identity_op, eq_op)]
+    #![allow(dead_code)]//, identity_op, eq_op)]
 
     pub const PRIMITIVE:             u8 = 0b00000000;
     pub const CONSTRUCTED:           u8 = 0b00100000;
@@ -154,7 +155,7 @@ pub mod asn1 {
 }
 
 pub mod snmp {
-    #![allow(dead_code, identity_op, eq_op)]
+    #![allow(dead_code)]//, identity_op, eq_op)]
 
     use super::asn1;
 
@@ -361,7 +362,7 @@ pub mod pdu {
             };
             n = n.to_be();
             let count = unsafe {
-                let mut wbuf = self.available();
+                let wbuf = self.available();
                 let mut src_ptr = &n as *const i64 as *const u8;
                 let mut dst_ptr = wbuf.as_mut_ptr()
                     .offset((wbuf.len() - mem::size_of::<i64>()) as isize);
@@ -608,6 +609,12 @@ fn decode_i64(i: &[u8]) -> SnmpResult<i64> {
     Ok(ret)
 }
 
+
+
+/////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
+
+
 /// Wrapper around raw bytes representing an ASN.1 OBJECT IDENTIFIER.
 #[derive(PartialEq, Clone)]
 pub struct ObjectIdentifier<'a> {
@@ -706,7 +713,32 @@ impl<'a> ObjectIdentifier<'a> {
     pub fn raw(&self) -> &'a [u8] {
         self.inner
     }
+
+/*
+    pub fn raw_oid(&self) -> SnmpResult<[u32]>{
+
+        let mut buf: ObjIdBuf = unsafe { mem::uninitialized() };
+        let mut first = true;
+        match self.read_name(&mut buf) {
+            Ok(name) => {
+                println!("{:?}", name);
+                return Ok(name.clone());
+            },
+            _ => {}
+            //Err(err) => Err(err)
+        }
+        Err(SnmpError::AsnParseError)
+
+      //let tmp: [u32; 128] = unsafe{ std::mem::transmute<[u8; ](self.inner)};
+    }
+
+*/
+
 }
+
+
+
+
 
 /// ASN.1/DER decoder iterator.
 ///
@@ -1192,6 +1224,116 @@ impl SyncSession {
             return Err(SnmpError::CommunityMismatch);
         }
         Ok(resp)
+    }
+
+
+    pub fn getbulkwalk(&mut self, names: &[&[u32]], non_repeaters: u32, max_repetitions: u32) -> SnmpResult<SnmpPdu>{
+        
+        for oid in names{
+            let prefix = oid;
+            let prefix_len = oid.len();            
+            println!("oid {:?}",oid );
+            let mut query: Vec<&[u32]> = Vec::new();
+            query.push(oid);
+            loop{
+
+                match self.getbulk( &query, non_repeaters, max_repetitions ){
+                    Ok(pdu) =>{
+                        println!("{:?}",pdu.varbinds);
+
+                        let filtered : Vec<(ObjectIdentifier, Value)> = pdu.varbinds
+                            //.inspect(|(curr_oid, _val)|println!("hi"))                    
+                            .filter(|(curr_oid, _val)| {  
+                                let mut oid_buff: [u32; 128] = [0; 128];
+                                let coid = curr_oid.read_name(&mut oid_buff).unwrap();
+                                let r = coid[0..prefix_len] == (*prefix)[..];
+                                r
+                        }).collect();
+
+                        if filtered.len() > 0{
+                            let last = filtered.last().unwrap();
+                            let last_oid = last.0.clone();                        
+
+                            let new_oid = ObjectIdentifier::from_bytes(last_oid.raw());
+
+                            let mut buf: ObjIdBuf = unsafe { mem::uninitialized() };
+                            let tmp = new_oid.read_name(&mut buf);
+
+                            let t = buf.clone();
+
+                            //println!("{:?}",&t);
+                            // let test_oid = new_oid.raw_oid().unwrap();
+                            query.clear();
+                            //query.push( &t[0..128] );
+
+                            for (i , j ) in filtered{
+                                println!("oid={:?}   val={:?}", i, j);
+                            }                    
+                        }else{
+                            break;
+                        }
+
+                    },
+                    Err(_e) => {
+
+                    }
+                }
+
+            }
+        }
+        //Ok(resp)    
+        Err(SnmpError::AsnUnsupportedType)
+
+/////
+/*
+
+    let mut list: Vec<(ObjectIdentifier, Value)> = Vec::new();
+    
+    let mut mem_buff: [u32; 128] = [0; 128];
+
+    loop {
+        let bulkquery = snmpbulkget_r(sess, oid.clone(), non_repeaters, max_repeats);
+                
+        match bulkquery{
+
+            Ok(vbs) => {
+                let filtered : Vec<(ObjectIdentifier, Value)> = vbs
+                    //.inspect(|(curr_oid, _val)|println!("hi"))                    
+                    .filter(|(curr_oid, _val)| {  
+                        let mut oid_buff: [u32; 128] = [0; 128];
+                        let coid = curr_oid.read_name(&mut oid_buff).unwrap();
+                        let r = coid[0..prefix_len] == (*prefix)[..];
+                        r
+                }).collect();
+
+                if filtered.len() > 0{
+                    let last = filtered.last().unwrap();
+                    let last_oid = last.0.clone();
+                    let new_oid = last_oid.read_name(&mut mem_buff).unwrap();
+                    oid = new_oid;
+                    
+                    for (i , j ) in filtered{
+                        println!("oid={:?}   val={:?}", i, j);
+                    }                    
+                }else{
+                    break;
+                }
+
+            },
+            _ => {}
+        };
+
+
+
+
+
+
+
+*/
+
+
+
+
     }
 
     /// # Panics if any of the values are not one of these supported types:
